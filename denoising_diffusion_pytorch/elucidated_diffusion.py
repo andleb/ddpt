@@ -1,3 +1,6 @@
+# NOTE: this is EDM - Karras 2022
+
+
 from math import sqrt
 from random import random
 import torch
