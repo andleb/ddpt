@@ -363,10 +363,12 @@ class Unet1D(nn.Module):
         self.final_conv = nn.Conv1d(dim, self.out_dim, 1)
 
     def forward(self, x, time, x_self_cond=None):
+
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
             x = torch.cat((x_self_cond, x), dim=1)
 
+        # UNET
         x = self.init_conv(x)
         r = x.clone()
 
@@ -404,7 +406,8 @@ class Unet1D(nn.Module):
         return self.final_conv(x)
 
 
-# gaussian diffusion trainer class
+###############################
+# GAUSSIAN DIFFUSION TRAINER CLASS
 
 def extract(a, t, x_shape):
     b, *_ = t.shape
@@ -457,6 +460,8 @@ class GaussianDiffusion1D(nn.Module):
         assert objective in {'pred_noise', 'pred_x0',
                              'pred_v'}, 'objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])'
 
+
+        # NOTE: the Ntimestep gets encoded in the beta shape
         if beta_schedule == 'linear':
             betas = linear_beta_schedule(timesteps)
         elif beta_schedule == 'cosine':
@@ -608,14 +613,19 @@ class GaussianDiffusion1D(nn.Module):
 
     @torch.no_grad()
     def p_sample_loop(self, shape):
+
+        # Each torch.Tensor stores the device
         batch, device = shape[0], self.betas.device
 
+        # NOTE: pure noise of batch X channels X seq_length
         img = torch.randn(shape, device=device)
 
         x_start = None
 
+        # NOTE: timesteps used here, p_sample does one step
         for t in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
             self_cond = x_start if self.self_condition else None
+            # Note: recursive - img gets recycled
             img, x_start = self.p_sample(img, t, self_cond)
 
         img = self.unnormalize(img)
@@ -689,6 +699,8 @@ class GaussianDiffusion1D(nn.Module):
     def q_sample(self, x_start, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
+
+        # NOTE: t in [0, timesteps], alphas/betas precalculated
         return (
                 extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
                 extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
@@ -699,7 +711,8 @@ class GaussianDiffusion1D(nn.Module):
         # NOTE: sample random noise
         noise = default(noise, lambda: torch.randn_like(x_start))
 
-        # Forward: noise it
+        # NOTE: Forward (ie q) direction: noise it
+        # This is all at the batch level
         x = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
@@ -714,7 +727,8 @@ class GaussianDiffusion1D(nn.Module):
 
         # predict and take gradient step
 
-        # calls the UNET
+        # NOTE: calls the UNET here
+        # x is w
         model_out = self.model(x, t, x_self_cond)
 
         if self.objective == 'pred_noise':
@@ -722,24 +736,30 @@ class GaussianDiffusion1D(nn.Module):
         elif self.objective == 'pred_x0':
             target = x_start
         elif self.objective == 'pred_v':
-            # TODO: what is this?
+            #  check Progressive Distillation for Fast Sampling of Diffusion Models 2021 for this
             v = self.predict_v(x_start, t, noise)
             target = v
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
         loss = F.mse_loss(model_out, target, reduction='none')
+        # batch X channels X seq_length -> batch
+        # ie the loss is averaged across channels and sequences
         loss = reduce(loss, 'b ... -> b', 'mean')
 
+        # NOTE: loss weight is adjusted given the timestep / schedule
         loss = loss * extract(self.loss_weight, t, loss.shape)
+
         return loss.mean()
 
     # NOTE: remember, this is __call__ in torch
     # Basically, this is setup as an abstract class that calls the Unet underneath
     def forward(self, img, *args, **kwargs):
         b, c, n, device, seq_length, = *img.shape, img.device, self.seq_length
+
+        # NOTE: sequence length here
         assert n == seq_length, f'seq length must be {seq_length}'
-        # NOTE: sample random t
+        # NOTE: sample random ts for the batch (b, ) from given timesteps
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = self.normalize(img)
