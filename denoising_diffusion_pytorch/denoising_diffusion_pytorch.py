@@ -26,9 +26,9 @@ from ema_pytorch import EMA
 
 from accelerate import Accelerator
 
-from denoising_diffusion_pytorch.attend import Attend
+from attend import Attend
 
-from denoising_diffusion_pytorch.version import __version__
+from version import __version__
 
 # constants
 
@@ -629,6 +629,7 @@ class GaussianDiffusion(Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False):
+        # NOTE: here the model would ignore the data
         model_output = self.model(x, t, x_self_cond)
         maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
@@ -796,7 +797,7 @@ class GaussianDiffusion(Module):
                 x_self_cond.detach_()
 
         # predict and take gradient step
-
+        # NOTE: for engression x would do nothing here
         model_out = self.model(x, t, x_self_cond)
 
         if self.objective == 'pred_noise':

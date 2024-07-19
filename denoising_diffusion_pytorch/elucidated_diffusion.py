@@ -101,9 +101,8 @@ class ElucidatedDiffusion(nn.Module):
     def c_noise(self, sigma):
         return log(sigma) * 0.25
 
-    # preconditioned network output
+    #NOTE:  preconditioned network output
     # equation (7) in the paper
-
     def preconditioned_network_forward(self, noised_images, sigma, self_cond = None, clamp = False):
         batch, device = noised_images.shape[0], noised_images.device
 

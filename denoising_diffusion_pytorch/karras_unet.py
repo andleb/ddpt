@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from einops import rearrange, repeat, pack, unpack
 
-from denoising_diffusion_pytorch.attend import Attend
+from attend import Attend
 
 # helpers functions
 
@@ -255,6 +255,7 @@ class Encoder(Module):
     def forward(
         self,
         x,
+    # NOTE: embedding passed here
         emb = None
     ):
         if self.downsample:
@@ -445,6 +446,7 @@ class KarrasUnet(Module):
 
         # input and output blocks
 
+        # TODO: this would be where you plug in engression!
         self.input_block = Conv2d(input_channels, dim, 3, concat_ones_to_input = True)
 
         self.output_block = nn.Sequential(
@@ -463,10 +465,12 @@ class KarrasUnet(Module):
 
         # class embedding
 
+        # TODO: easily change this to bool if continuous
         self.needs_class_labels = exists(num_classes)
         self.num_classes = num_classes
 
         if self.needs_class_labels:
+            #TODO: and change here to something more complicated
             self.to_class_emb = Linear(num_classes, 4 * dim)
             self.add_class_emb = MPAdd(t = mp_add_emb_t)
 
@@ -578,13 +582,16 @@ class KarrasUnet(Module):
         time_emb = self.to_time_emb(time)
 
         # class condition
-
         assert xnor(exists(class_labels), self.needs_class_labels)
 
         if self.needs_class_labels:
+            # TODO: do nothing here if continuous
             if class_labels.dtype in (torch.int, torch.long):
                 class_labels = F.one_hot(class_labels, self.num_classes)
 
+
+        # NOTE: class embeddings get concatenated
+        # TODO: change to simple numeric (standardized?)
             assert class_labels.shape[-1] == self.num_classes
             class_labels = class_labels.float() * sqrt(self.num_classes)
 
