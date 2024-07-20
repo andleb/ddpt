@@ -49,7 +49,7 @@ class ElucidatedDiffusion(nn.Module):
         rho = 7,               # controls the sampling schedule
         P_mean = -1.2,         # mean of log-normal distribution from which noise is drawn for training
         P_std = 1.2,           # standard deviation of log-normal distribution from which noise is drawn for training
-        S_churn = 80,          # parameters for stochastic sampling - depends on dataset, Table 5 in apper
+        S_churn = 80,          # parameters for stochastic sampling - depends on dataset, Table 5 in paper
         S_tmin = 0.05,
         S_tmax = 50,
         S_noise = 1.003,
@@ -111,6 +111,7 @@ class ElucidatedDiffusion(nn.Module):
 
         padded_sigma = rearrange(sigma, 'b -> b 1 1 1')
 
+        # TODO: need to add conditioning as the 4th element for the karrasUnet
         net_out = self.net(
             self.c_in(padded_sigma) * noised_images,
             self.c_noise(sigma),
@@ -269,8 +270,10 @@ class ElucidatedDiffusion(nn.Module):
                 self_cond = self.preconditioned_network_forward(noised_images, sigmas)
                 self_cond.detach_()
 
+        # TODO: pass conditioning here
         denoised = self.preconditioned_network_forward(noised_images, sigmas, self_cond)
 
+        # this is x-prediction
         losses = F.mse_loss(denoised, images, reduction = 'none')
         losses = reduce(losses, 'b ... -> b', 'mean')
 

@@ -451,7 +451,7 @@ class KarrasUnet1D(Module):
         input_channels = channels * (2 if self_condition else 1)
 
         # input and output blocks
-
+        # TODO: this would be where you plug in engression!
         self.input_block = Conv1d(input_channels, dim, 3, concat_ones_to_input = True)
 
         self.output_block = nn.Sequential(
@@ -469,11 +469,12 @@ class KarrasUnet1D(Module):
         )
 
         # class embedding
-
+        # TODO: easily change this to bool if continuous
         self.needs_class_labels = exists(num_classes)
         self.num_classes = num_classes
 
         if self.needs_class_labels:
+            #TODO: and change here to a MLP
             self.to_class_emb = Linear(num_classes, 4 * dim)
             self.add_class_emb = MPAdd(t = mp_add_emb_t)
 
@@ -589,9 +590,12 @@ class KarrasUnet1D(Module):
         assert xnor(exists(class_labels), self.needs_class_labels)
 
         if self.needs_class_labels:
+            # TODO: do nothing here if continuous
             if class_labels.dtype in (torch.int, torch.long):
                 class_labels = F.one_hot(class_labels, self.num_classes)
 
+            # NOTE: class embeddings get concatenated
+            # TODO: change to simple numeric (standardized?)
             assert class_labels.shape[-1] == self.num_classes
             class_labels = class_labels.float() * sqrt(self.num_classes)
 
@@ -693,8 +697,24 @@ class MPImageTransformer(Module):
 
         return x
 
-# example
+# NOTE: ported from 2D, shpuld be fine since it's just the lambda scheduler
+# works best with inverse square root decay schedule
+def InvSqrtDecayLRSched(
+    optimizer,
+    t_ref = 70000,
+    sigma_ref = 0.01
+):
+    """
+    refer to equation 67 and Table1
+    """
+    def inv_sqrt_decay_fn(t: int):
+        return sigma_ref / sqrt(max(t / t_ref, 1.))
 
+    return LambdaLR(optimizer, lr_lambda = inv_sqrt_decay_fn)
+
+
+
+# example
 if __name__ == '__main__':
     unet = KarrasUnet1D(
         seq_len = 64,
