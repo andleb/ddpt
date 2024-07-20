@@ -649,7 +649,7 @@ class GaussianDiffusion1D(Module):
         b, c, n = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
 
-        # noise sample - this is z in terms of Kingma
+        # NOTE: this is noised sample - z in terms of Kingma
         x = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times

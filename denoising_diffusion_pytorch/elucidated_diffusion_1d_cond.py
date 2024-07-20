@@ -105,8 +105,10 @@ class ElucidatedDiffusion(nn.Module):
     def preconditioned_network_forward(self,
                                        noised_seq,
                                        sigma,
+                                       condition=None,
                                        self_cond=None,
                                        clamp=False):
+
         batch, device = noised_seq.shape[0], noised_seq.device
 
         if isinstance(sigma, float):
@@ -115,9 +117,11 @@ class ElucidatedDiffusion(nn.Module):
         # NOTE: reduced this by one dim
         padded_sigma = rearrange(sigma, 'b -> b 1 1')
 
-        # TODO: need to add conditioning as the 3rd element for the karrasUnet
-        # only model call
-        net_out = self.net(self.c_in(padded_sigma) * noised_seq, self.c_noise(sigma), self_cond=self_cond)
+        # NOTE: only model call, param format currently for karras1dcont
+        net_out = self.net(self.c_in(padded_sigma) * noised_seq,
+                           self.c_noise(sigma),
+                           conditioning=condition,
+                           self_cond=self_cond)
 
         # TODO: figure out which of these would relate to the data for engression
         out = self.c_skip(padded_sigma) * noised_seq + self.c_out(padded_sigma) * net_out
@@ -248,7 +252,7 @@ class ElucidatedDiffusion(nn.Module):
     def noise_distribution(self, batch_size):
         return (self.P_mean + self.P_std * torch.randn((batch_size,), device=self.device)).exp()
 
-    def forward(self, seqs):
+    def forward(self, seqs, condition=None):
         batch_size, c, n, device, seq_length, channels = *seqs.shape, seqs.device, self.seq_length, self.channels
         assert n == seq_length, f'seq length must be {seq_length}'
         assert c == channels, 'mismatch of image channels'
@@ -268,13 +272,16 @@ class ElucidatedDiffusion(nn.Module):
         if self.self_condition and random() < 0.5:
             # from hinton's group's bit diffusion paper
             with torch.no_grad():
-                self_cond = self.preconditioned_network_forward(noised_seqs, sigmas)
+                self_cond = self.preconditioned_network_forward(noised_seqs, sigmas,
+                                                                condition=condition)
                 self_cond.detach_()
 
-        # TODO: pass conditioning here
-        denoised = self.preconditioned_network_forward(noised_seqs, sigmas, self_cond)
+        denoised = self.preconditioned_network_forward(noised_seqs,
+                                                       sigmas,
+                                                       condition=condition,
+                                                       self_cond=self_cond)
 
-        # this is x-prediction
+        # this is just weighted x-prediction, as in paper
         losses = F.mse_loss(denoised, seqs, reduction='none')
         losses = reduce(losses, 'b ... -> b', 'mean')
 
