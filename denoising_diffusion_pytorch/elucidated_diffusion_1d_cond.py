@@ -272,7 +272,10 @@ class ElucidatedDiffusion(nn.Module):
         if self.self_condition and random() < 0.5:
             # from hinton's group's bit diffusion paper
             with torch.no_grad():
-                self_cond = self.preconditioned_network_forward(noised_seqs, sigmas,
+                # NOTE: the logic is that we pass conditional again, since
+                # each cond. diffusion process an independent diffusion process in itself
+                self_cond = self.preconditioned_network_forward(noised_seqs,
+                                                                sigmas,
                                                                 condition=condition)
                 self_cond.detach_()
 
