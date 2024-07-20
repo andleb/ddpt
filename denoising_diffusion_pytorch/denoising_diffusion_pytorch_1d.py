@@ -102,7 +102,7 @@ class Residual(Module):
 
 def Upsample(dim, dim_out=None):
     return nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'),
-        nn.Conv1d(dim, default(dim_out, dim), 3, padding=1))
+                         nn.Conv1d(dim, default(dim_out, dim), 3, padding=1))
 
 
 def Downsample(dim, dim_out=None):
@@ -266,8 +266,9 @@ class Attention(Module):
 
 class Unet1D(Module):
     def __init__(self, dim, init_dim=None, out_dim=None, dim_mults=(1, 2, 4, 8), channels=3, dropout=0.,
-            self_condition=False, learned_variance=False, learned_sinusoidal_cond=False, random_fourier_features=False,
-            learned_sinusoidal_dim=16, sinusoidal_pos_emb_theta=10000, attn_dim_head=32, attn_heads=4):
+                 self_condition=False, learned_variance=False, learned_sinusoidal_cond=False,
+                 random_fourier_features=False,
+                 learned_sinusoidal_dim=16, sinusoidal_pos_emb_theta=10000, attn_dim_head=32, attn_heads=4):
         super().__init__()
 
         # determine dimensions
@@ -296,7 +297,7 @@ class Unet1D(Module):
             fourier_dim = dim
 
         self.time_mlp = nn.Sequential(sinu_pos_emb, nn.Linear(fourier_dim, time_dim), nn.GELU(),
-            nn.Linear(time_dim, time_dim))
+                                      nn.Linear(time_dim, time_dim))
 
         resnet_block = partial(ResnetBlock, time_emb_dim=time_dim, dropout=dropout)
 
@@ -310,8 +311,9 @@ class Unet1D(Module):
             is_last = ind >= (num_resolutions - 1)
 
             self.downs.append(ModuleList([resnet_block(dim_in, dim_in), resnet_block(dim_in, dim_in),
-                Residual(PreNorm(dim_in, LinearAttention(dim_in))),
-                Downsample(dim_in, dim_out) if not is_last else nn.Conv1d(dim_in, dim_out, 3, padding=1)]))
+                                          Residual(PreNorm(dim_in, LinearAttention(dim_in))),
+                                          Downsample(dim_in, dim_out) if not is_last else nn.Conv1d(dim_in, dim_out, 3,
+                                                                                                    padding=1)]))
 
         mid_dim = dims[-1]
         self.mid_block1 = resnet_block(mid_dim, mid_dim)
@@ -323,8 +325,8 @@ class Unet1D(Module):
 
             self.ups.append(ModuleList(
                 [resnet_block(dim_out + dim_in, dim_out), resnet_block(dim_out + dim_in, dim_out),
-                    Residual(PreNorm(dim_out, LinearAttention(dim_out))),
-                    Upsample(dim_out, dim_in) if not is_last else nn.Conv1d(dim_out, dim_in, 3, padding=1)]))
+                 Residual(PreNorm(dim_out, LinearAttention(dim_out))),
+                 Upsample(dim_out, dim_in) if not is_last else nn.Conv1d(dim_out, dim_in, 3, padding=1)]))
 
         default_out_dim = channels * (1 if not learned_variance else 2)
         self.out_dim = default(out_dim, default_out_dim)
@@ -404,7 +406,7 @@ def cosine_beta_schedule(timesteps, s=0.008):
 
 class GaussianDiffusion1D(Module):
     def __init__(self, model, *, seq_length, timesteps=1000, sampling_timesteps=None, objective='pred_noise',
-            beta_schedule='cosine', ddim_sampling_eta=0., auto_normalize=True):
+                 beta_schedule='cosine', ddim_sampling_eta=0., auto_normalize=True):
         super().__init__()
         self.model = model
         self.channels = self.model.channels
@@ -474,6 +476,7 @@ class GaussianDiffusion1D(Module):
 
         snr = alphas_cumprod / (1 - alphas_cumprod)
 
+        # NOTE: this follows Kingma '23
         if objective == 'pred_noise':
             loss_weight = torch.ones_like(snr)
         elif objective == 'pred_x0':
@@ -646,8 +649,7 @@ class GaussianDiffusion1D(Module):
         b, c, n = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
 
-        # noise sample
-
+        # noise sample - this is z in terms of Kingma
         x = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
@@ -693,15 +695,17 @@ class GaussianDiffusion1D(Module):
 
 class Trainer1D(object):
     def __init__(self, diffusion_model: GaussianDiffusion1D, dataset: Dataset, *, train_batch_size=16,
-            gradient_accumulate_every=1, train_lr=1e-4, train_num_steps=100000, ema_update_every=10, ema_decay=0.995,
-            adam_betas=(0.9, 0.99), save_and_sample_every=1000, num_samples=25, results_folder='./results', amp=False,
-            mixed_precision_type='fp16', split_batches=True, max_grad_norm=1.):
+                 gradient_accumulate_every=1, train_lr=1e-4, train_num_steps=100000, ema_update_every=10,
+                 ema_decay=0.995,
+                 adam_betas=(0.9, 0.99), save_and_sample_every=1000, num_samples=25, results_folder='./results',
+                 amp=False,
+                 mixed_precision_type='fp16', split_batches=True, max_grad_norm=1.):
         super().__init__()
 
         # accelerator
 
         self.accelerator = Accelerator(split_batches=split_batches,
-            mixed_precision=mixed_precision_type if amp else 'no')
+                                       mixed_precision=mixed_precision_type if amp else 'no')
 
         # model
 
@@ -756,10 +760,11 @@ class Trainer1D(object):
         if not self.accelerator.is_local_main_process:
             return
 
-        data = {'step': self.step, 'model': self.accelerator.get_state_dict(self.model), 'opt': self.opt.state_dict(),
-            'ema'     : self.ema.state_dict(),
-            'scaler'  : self.accelerator.scaler.state_dict() if exists(self.accelerator.scaler) else None,
-            'version' : __version__}
+        data = {'step'   : self.step, 'model': self.accelerator.get_state_dict(self.model),
+                'opt'    : self.opt.state_dict(),
+                'ema'    : self.ema.state_dict(),
+                'scaler' : self.accelerator.scaler.state_dict() if exists(self.accelerator.scaler) else None,
+                'version': __version__}
 
         torch.save(data, str(self.results_folder / f'model-{milestone}.pt'))
 
