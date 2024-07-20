@@ -501,8 +501,9 @@ class KarrasUnet1D(Module):
         self.num_classes = num_classes
 
         if self.needs_class_labels:
-            # TODO: and change here to a MLP
-            self.to_class_emb = Linear(num_classes, 4 * dim)
+            # TODO: and change here to a MLP (to a scalar or vector?); right now linear transform to 4x the dimension
+            self.to_class_emb = Linear(num_classes, emb_dim)
+            # NOTE: this is simply a sort of a harmonic mean
             self.add_class_emb = MPAdd(t=mp_add_emb_t)
 
         # final embedding activations
