@@ -453,7 +453,7 @@ class KarrasUnet1D(Module):
             channels,  # 4 channels in paper for some reason, must be alpha channel?
             dim=192,
             dim_max=768,  # channels will double every downsample and cap out to this value
-            num_classes=None,  # in paper, they do 1000 classes for a popular benchmark
+            conditional_dim=1,  # allow for multivariate cont. conditioning
             num_downsamples=3,
             num_blocks_per_stage=4,
             attn_res=(16, 8),
@@ -487,7 +487,6 @@ class KarrasUnet1D(Module):
         )
 
         # time embedding
-
         emb_dim = dim * 4
 
         self.to_time_emb = nn.Sequential(
@@ -496,30 +495,35 @@ class KarrasUnet1D(Module):
         )
 
         # class embedding
-        # TODO: easily change this to bool if continuous
-        self.needs_class_labels = exists(num_classes)
-        self.num_classes = num_classes
+        self.needs_conditional = exists(conditional_dim)
+        self.conditional_dim = conditional_dim
 
-        if self.needs_class_labels:
-            # TODO: and change here to a MLP (to a scalar or vector?); right now linear transform to 4x the dimension
-            self.to_class_emb = Linear(num_classes, emb_dim)
+        if self.needs_conditional:
+            # TODO: adjust nr. of hidden layers if needed
+            # self.to_class_emb = Linear(conditional_dim, emb_dim)
+            self.to_cond_emb = nn.Sequential(
+                nn.Linear(conditional_dim, emb_dim),
+                nn.BatchNorm1d(emb_dim),
+                MPSiLU(),
+                # add another FC layer
+                nn.Linear(emb_dim, emb_dim),
+                nn.BatchNorm1d(emb_dim),
+                MPSiLU(),
+
+            )
             # NOTE: this is simply a sort of a harmonic mean
             self.add_class_emb = MPAdd(t=mp_add_emb_t)
 
         # final embedding activations
-
         self.emb_activation = MPSiLU()
 
         # number of downsamples
-
         self.num_downsamples = num_downsamples
 
         # attention
-
         attn_res = set(cast_tuple(attn_res))
 
         # resnet block
-
         block_kwargs = dict(
             dropout=dropout,
             emb_dim=emb_dim,
@@ -529,7 +533,6 @@ class KarrasUnet1D(Module):
         )
 
         # unet encoder and decoders
-
         self.downs = ModuleList([])
         self.ups = ModuleList([])
 
@@ -539,7 +542,6 @@ class KarrasUnet1D(Module):
         self.skip_mp_cat = MPCat(t=mp_cat_t, dim=1)
 
         # take care of skip connection for initial input block and first three encoder blocks
-
         prepend(self.ups, Decoder(dim * 2, dim, **block_kwargs))
 
         assert num_blocks_per_stage >= 1
@@ -552,7 +554,6 @@ class KarrasUnet1D(Module):
             prepend(self.ups, dec)
 
         # stages
-
         for _ in range(self.num_downsamples):
             dim_out = min(dim_max, curr_dim * 2)
             upsample = Decoder(dim_out, curr_dim, has_attn=curr_res in attn_res, upsample=True, **block_kwargs)
@@ -576,7 +577,6 @@ class KarrasUnet1D(Module):
             curr_dim = dim_out
 
         # take care of the two middle decoders
-
         mid_has_attn = curr_res in attn_res
 
         self.mids = ModuleList([
@@ -590,19 +590,13 @@ class KarrasUnet1D(Module):
     def downsample_factor(self):
         return 2 ** self.num_downsamples
 
-    def forward(
-            self,
-            x,
-            time,
-            self_cond=None,
-            class_labels=None
-    ):
+    # NOTE: changed order of params - make sure it is called correctly in the driver
+    def forward(self, x, time, conditioning=None, self_cond=None):
         # validate image shape
 
         assert x.shape[1:] == (self.channels, self.seq_len)
 
         # self conditioning
-
         if self.self_condition:
             self_cond = default(self_cond, lambda: torch.zeros_like(x))
             x = torch.cat((self_cond, x), dim=1)
@@ -610,56 +604,44 @@ class KarrasUnet1D(Module):
             assert not exists(self_cond)
 
         # time condition
-
         time_emb = self.to_time_emb(time)
 
-        # class condition
+        # condition
+        assert xnor(exists(conditioning), self.needs_conditional)
 
-        assert xnor(exists(class_labels), self.needs_class_labels)
-
-        if self.needs_class_labels:
-            # TODO: do nothing here if continuous
-            if class_labels.dtype in (torch.int, torch.long):
-                class_labels = F.one_hot(class_labels, self.num_classes)
+        if self.needs_conditional:
+            # do nothing here if continuous
+            # if class_labels.dtype in (torch.int, torch.long):
+            #     class_labels = F.one_hot(class_labels, self.conditional_dim)
 
             # NOTE: class embeddings get concatenated
             # TODO: change to simple numeric (standardized?)
-
-            # no need for this nonsense
-            # assert class_labels.shape[-1] == self.num_classes
-            class_labels = class_labels.float() * sqrt(self.num_classes)
-
-            class_emb = self.to_class_emb(class_labels)
-
-            time_emb = self.add_class_emb(time_emb, class_emb)
+            assert conditioning.shape[-1] == self.conditional_dim
+            # TODO: what to do with the normalization of the conditioning?
+            # class_labels = class_labels.float() * sqrt(self.conditional_dim)
+            cond_emb = self.to_cond_emb(conditioning)
+            time_emb = self.add_class_emb(time_emb, cond_emb)
 
         # final mp-silu for embedding
-
         emb = self.emb_activation(time_emb)
 
         # skip connections
-
         skips = []
 
         # input block
-
         x = self.input_block(x)
-
         skips.append(x)
 
         # down
-
         for encoder in self.downs:
             x = encoder(x, emb=emb)
             skips.append(x)
 
         # mid
-
         for decoder in self.mids:
             x = decoder(x, emb=emb)
 
         # up
-
         for decoder in self.ups:
             if decoder.needs_skip:
                 skip = skips.pop()
@@ -668,7 +650,6 @@ class KarrasUnet1D(Module):
             x = decoder(x, emb=emb)
 
         # output block
-
         return self.output_block(x)
 
 
@@ -754,7 +735,7 @@ if __name__ == '__main__':
         seq_len=64,
         dim=192,
         dim_max=768,
-        num_classes=1000,
+        conditional_dim=1000,
     )
 
     images = torch.randn(2, 4, 64)
