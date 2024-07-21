@@ -221,7 +221,7 @@ class ElucidatedDiffusion(nn.Module):
 
 
     @torch.no_grad()
-    def sample_using_dpmpp(self, batch_size=16, num_sample_steps=None, clamp=False):
+    def sample_using_dpmpp(self, condition=None, batch_size=16, num_sample_steps=None, clamp=False):
         """
         thanks to Katherine Crowson (https://github.com/crowsonkb) for figuring it all out!
         https://arxiv.org/abs/2211.01095
@@ -231,15 +231,16 @@ class ElucidatedDiffusion(nn.Module):
 
         sigmas = self.sample_schedule(num_sample_steps)
 
-        shape = (batch_size, self.channels, self.seq_length, self.seq_length)
-        images = sigmas[0] * torch.randn(shape, device=device)
+        shape = (batch_size, self.channels, self.seq_length)
+        seqs = sigmas[0] * torch.randn(shape, device=device)
 
         sigma_fn = lambda t: t.neg().exp()
         t_fn = lambda sigma: sigma.log().neg()
 
         old_denoised = None
         for i in tqdm(range(len(sigmas) - 1)):
-            denoised = self.preconditioned_network_forward(images, sigmas[i].item())
+            denoised = self.preconditioned_network_forward(seqs, sigmas[i].item(),
+                                                           condition=condition)
             t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
             h = t_next - t
 
@@ -251,12 +252,12 @@ class ElucidatedDiffusion(nn.Module):
                 gamma = - 1 / (2 * r)
                 denoised_d = (1 - gamma) * denoised + gamma * old_denoised
 
-            images = (sigma_fn(t_next) / sigma_fn(t)) * images - (-h).expm1() * denoised_d
+            seqs = (sigma_fn(t_next) / sigma_fn(t)) * seqs - (-h).expm1() * denoised_d
             old_denoised = denoised
 
         if clamp:
-            images = images.clamp(-1., 1.)
-        return self.unnormalize(images)
+            seqs = seqs.clamp(-1., 1.)
+        return self.unnormalize(seqs)
 
     # training
 
