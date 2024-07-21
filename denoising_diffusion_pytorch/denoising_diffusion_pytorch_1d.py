@@ -487,7 +487,7 @@ class GaussianDiffusion1D(Module):
         register_buffer('loss_weight', loss_weight)
 
         # whether to autonormalize
-        # FIXME: these should be standardization, not 0-1 normalizations
+        # these should be standardization, not 0-1 normalizations?
         self.normalize = normalize_to_neg_one_to_one if auto_normalize else identity
         self.unnormalize = unnormalize_to_zero_to_one if auto_normalize else identity
 
@@ -539,6 +539,7 @@ class GaussianDiffusion1D(Module):
             x_start = maybe_clip(x_start)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
 
+        # NOTE: returning x_0 regardless of the objective
         return ModelPrediction(pred_noise, x_start)
 
     def p_mean_variance(self, x, t, x_self_cond=None, clip_denoised=True):
@@ -555,7 +556,8 @@ class GaussianDiffusion1D(Module):
     def p_sample(self, x, t: int, x_self_cond=None, clip_denoised=True):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((b,), t, device=x.device, dtype=torch.long)
-        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x=x, t=batched_times, x_self_cond=x_self_cond,
+        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x=x, t=batched_times,
+                                                                          x_self_cond=x_self_cond,
                                                                           clip_denoised=clip_denoised)
         noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise

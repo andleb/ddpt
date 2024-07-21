@@ -591,7 +591,7 @@ class KarrasUnet1D(Module):
         return 2 ** self.num_downsamples
 
     # NOTE: changed order of params - make sure it is called correctly in the driver
-    def forward(self, x, time, conditioning=None, self_cond=None):
+    def forward(self, x, time, condition=None, self_cond=None):
         # validate image shape
 
         assert x.shape[1:] == (self.channels, self.seq_len)
@@ -607,7 +607,7 @@ class KarrasUnet1D(Module):
         time_emb = self.to_time_emb(time)
 
         # condition
-        assert xnor(exists(conditioning), self.needs_conditional)
+        assert xnor(exists(condition), self.needs_conditional)
 
         if self.needs_conditional:
             # do nothing here if continuous
@@ -616,10 +616,10 @@ class KarrasUnet1D(Module):
 
             # NOTE: class embeddings get concatenated
             # TODO: change to simple numeric (standardized?)
-            assert conditioning.shape[-1] == self.conditional_dim
+            assert condition.shape[-1] == self.conditional_dim
             # TODO: what to do with the normalization of the conditioning?
             # class_labels = class_labels.float() * sqrt(self.conditional_dim)
-            cond_emb = self.to_cond_emb(conditioning)
+            cond_emb = self.to_cond_emb(condition)
             time_emb = self.add_class_emb(time_emb, cond_emb)
 
         # final mp-silu for embedding

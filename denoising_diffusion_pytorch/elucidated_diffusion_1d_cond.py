@@ -45,15 +45,18 @@ class ElucidatedDiffusion(nn.Module):
                  seq_length,
                  channels=1,
                  num_sample_steps=32,  # number of sampling steps
+                 auto_normalize=False, # we have unbounded data #TODO: check what engression does
                  sigma_min=0.002,  # min noise level
                  sigma_max=80,  # max noise level
-                 # NOTE: use this if standardizing the data!
+                 # NOTE: if standardizing the data, adjust this
                  sigma_data=0.5,  # standard deviation of data distribution
                  rho=7,  # controls the sampling schedule
                  P_mean=-1.2,  # mean of log-normal distribution from which noise is drawn for training
                  P_std=1.2,  # standard deviation of log-normal distribution from which noise is drawn for training
                  S_churn=80,  # parameters for stochastic sampling - depends on dataset, Table 5 in paper
-                 S_tmin=0.05, S_tmax=50, S_noise=1.003, ):
+                 S_tmin=0.05,
+                 S_tmax=50,
+                 S_noise=1.003):
 
         super().__init__()
         #TODO: karras doesn't have these, not used in this file
@@ -82,6 +85,10 @@ class ElucidatedDiffusion(nn.Module):
         self.S_tmin = S_tmin
         self.S_tmax = S_tmax
         self.S_noise = S_noise
+
+        # whether to autonormalize
+        self.normalize = normalize_to_neg_one_to_one if auto_normalize else identity
+        self.unnormalize = unnormalize_to_zero_to_one if auto_normalize else identity
 
     @property
     def device(self):
@@ -149,65 +156,72 @@ class ElucidatedDiffusion(nn.Module):
         return sigmas
 
     @torch.no_grad()
-    def sample(self, batch_size=16, num_sample_steps=None, clamp=True):
+    def sample(self, condition=None, batch_size=16, num_sample_steps=None, clamp=False):
         num_sample_steps = default(num_sample_steps, self.num_sample_steps)
 
-        shape = (batch_size, self.channels, self.seq_length, self.seq_length)
+        shape = (batch_size, self.channels, self.seq_length)
 
         # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
-
         sigmas = self.sample_schedule(num_sample_steps)
 
         gammas = torch.where((sigmas >= self.S_tmin) & (sigmas <= self.S_tmax),
                              min(self.S_churn / num_sample_steps, sqrt(2) - 1), 0.)
 
+        # Interpolating between sigmas
         sigmas_and_gammas = list(zip(sigmas[:-1], sigmas[1:], gammas[:-1]))
 
-        # images is noise at the beginning
-
+        # sequence is noise at the beginning, regardless of the conditioning
         init_sigma = sigmas[0]
-
-        images = init_sigma * torch.randn(shape, device=self.device)
+        seqs = init_sigma * torch.randn(shape, device=self.device)
 
         # for self conditioning
-
         x_start = None
 
         # gradually denoise
-
         for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc='sampling time step'):
             sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
 
             eps = self.S_noise * torch.randn(shape, device=self.device)  # stochastic sampling
 
             sigma_hat = sigma + gamma * sigma
-            images_hat = images + sqrt(sigma_hat ** 2 - sigma ** 2) * eps
+            seqs_hat = seqs + sqrt(sigma_hat ** 2 - sigma ** 2) * eps
 
             self_cond = x_start if self.self_condition else None
 
-            model_output = self.preconditioned_network_forward(images_hat, sigma_hat, self_cond, clamp=clamp)
-            denoised_over_sigma = (images_hat - model_output) / sigma_hat
+            # NOTE: condition passed here
+            model_output = self.preconditioned_network_forward(seqs_hat, sigma_hat,
+                                                               condition,
+                                                               self_cond, clamp=clamp)
+            # kind of a relative estimated error
+            diff_over_sigma = (seqs_hat - model_output) / sigma_hat
 
-            images_next = images_hat + (sigma_next - sigma_hat) * denoised_over_sigma
+            seqs_next = seqs_hat + (sigma_next - sigma_hat) * diff_over_sigma
 
             # second order correction, if not the last timestep
-
             if sigma_next != 0:
                 self_cond = model_output if self.self_condition else None
 
-                model_output_next = self.preconditioned_network_forward(images_next, sigma_next, self_cond, clamp=clamp)
-                denoised_prime_over_sigma = (images_next - model_output_next) / sigma_next
-                images_next = images_hat + 0.5 * (sigma_next - sigma_hat) * (
-                        denoised_over_sigma + denoised_prime_over_sigma)
+                # NOTE: condition passed here
+                model_output_next = self.preconditioned_network_forward(seqs_next, sigma_next,
+                                                                        condition,
+                                                                        self_cond,
+                                                                        clamp=clamp)
+                diff_prime_over_sigma = (seqs_next - model_output_next) / sigma_next
+                seqs_next = seqs_hat + 0.5 * (sigma_next - sigma_hat) * (
+                        diff_over_sigma + diff_prime_over_sigma)
 
-            images = images_next
+            seqs = seqs_next
+            # remember: this is x-prediction, after all
             x_start = model_output_next if sigma_next != 0 else model_output
 
-        images = images.clamp(-1., 1.)
-        return unnormalize_to_zero_to_one(images)
+        if clamp:
+            seqs = seqs.clamp(-1., 1.)
+
+        return self.unnormalize(seqs)
+
 
     @torch.no_grad()
-    def sample_using_dpmpp(self, batch_size=16, num_sample_steps=None):
+    def sample_using_dpmpp(self, batch_size=16, num_sample_steps=None, clamp=False):
         """
         thanks to Katherine Crowson (https://github.com/crowsonkb) for figuring it all out!
         https://arxiv.org/abs/2211.01095
@@ -240,8 +254,9 @@ class ElucidatedDiffusion(nn.Module):
             images = (sigma_fn(t_next) / sigma_fn(t)) * images - (-h).expm1() * denoised_d
             old_denoised = denoised
 
-        images = images.clamp(-1., 1.)
-        return unnormalize_to_zero_to_one(images)
+        if clamp:
+            images = images.clamp(-1., 1.)
+        return self.unnormalize(images)
 
     # training
 
@@ -257,8 +272,8 @@ class ElucidatedDiffusion(nn.Module):
         assert n == seq_length, f'seq length must be {seq_length}'
         assert c == channels, 'mismatch of image channels'
 
-        # TODO: where is it unnomralized? (same in 1ddiffusion)
-        seqs = normalize_to_neg_one_to_one(seqs)
+        # unnormalized - in sampling
+        seqs = self.normalize(seqs)
 
         sigmas = self.noise_distribution(batch_size)
         # NOTE: reduced this by one dim
@@ -293,4 +308,6 @@ class ElucidatedDiffusion(nn.Module):
 
         return losses.mean()
 
+
+################################################################################
 # TODO: add the dataset etc. files if needed
