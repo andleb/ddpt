@@ -127,7 +127,7 @@ class ElucidatedDiffusion(nn.Module):
         # NOTE: only model call, param format currently for karras1dcont
         net_out = self.net(self.c_in(padded_sigma) * noised_seq,
                            self.c_noise(sigma),
-                           conditioning=condition,
+                           condition=condition,
                            self_cond=self_cond)
 
         # TODO: figure out which of these would relate to the data for engression

@@ -465,7 +465,7 @@ class KarrasUnet1D(Module):
             attn_res_mp_add_t=0.3,
             resnet_mp_add_t=0.3,
             dropout=0.1,
-            self_condition=False
+            self_condition=False # NOTE: don't self condition by default before we figure out if this works
     ):
         super().__init__()
 
