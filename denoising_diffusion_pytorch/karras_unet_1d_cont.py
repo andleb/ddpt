@@ -642,6 +642,7 @@ class KarrasUnet1D(Module):
             x = decoder(x, emb=emb)
 
         # up
+        # FIXME: why does MV conditioning mess up this? it should get embedded above!
         for decoder in self.ups:
             if decoder.needs_skip:
                 skip = skips.pop()
