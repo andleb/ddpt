@@ -615,7 +615,6 @@ class KarrasUnet1D(Module):
             #     class_labels = F.one_hot(class_labels, self.conditional_dim)
 
             # NOTE: class embeddings get concatenated
-            # TODO: change to simple numeric (standardized?)
             assert condition.shape[-1] == self.conditional_dim
             # TODO: what to do with the normalization of the conditioning?
             # class_labels = class_labels.float() * sqrt(self.conditional_dim)
@@ -643,6 +642,7 @@ class KarrasUnet1D(Module):
 
         # up
         # FIXME: why does MV conditioning mess up this? it should get embedded above!
+        # Somehow getting mismatches between the skip and the upsampled xs
         for decoder in self.ups:
             if decoder.needs_skip:
                 skip = skips.pop()
