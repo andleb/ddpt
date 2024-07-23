@@ -346,8 +346,8 @@ def train(diffusion: ElucidatedDiffusion,
         loss = diffusion(seqs=seqs, condition=conditions)
         loss.backward()
         # print(loss.item())
-        pbar.set_description("Loss: %.4f" % loss.item())
         optimizer.step()
+        pbar.set_description("Loss: %.4f" % loss.item())
 
 
 
