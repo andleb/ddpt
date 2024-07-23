@@ -441,7 +441,7 @@ class Attention(Module):
 # improvised 1d version
 # bias-less, no group-norms, with magnitude preserving operations
 
-class KarrasUnet1D(Module):
+class KarrasUnet1Dcont(Module):
     """
     going by figure 21. config G
     """

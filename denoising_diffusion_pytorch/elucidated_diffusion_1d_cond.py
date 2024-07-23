@@ -9,6 +9,10 @@ from einops import rearrange, reduce
 from torch import nn
 from tqdm import tqdm
 
+from torch.optim import Adam
+from torch.utils.data import Dataset, DataLoader
+from tqdm.auto import tqdm
+
 
 # helpers
 def exists(val):
@@ -312,3 +316,39 @@ class ElucidatedDiffusion(nn.Module):
 
 ################################################################################
 # TODO: add the dataset etc. files if needed
+# TODO: re-work to batching
+
+def train(diffusion: ElucidatedDiffusion,
+          seqs,
+          conditions,
+          num_epochs=100,
+          batch_size=32,
+          lr=1e-4,
+          adam_betas=(0.9, 0.999),
+          ema_decay=0.999,
+          log_interval=10,
+          save_interval=1000,
+          save_path='elucidated_diffusion.pt',
+          **kwargs):
+
+
+    device = diffusion.device
+
+
+    optimizer = Adam(diffusion.parameters(), lr=lr, betas=adam_betas)
+
+
+    # TODO: EMA decay
+
+    pbar = tqdm(range(num_epochs), desc='Loss: N/A')
+    for epoch in pbar:
+        optimizer.zero_grad()
+        loss = diffusion(seqs=seqs, condition=conditions)
+        loss.backward()
+        # print(loss.item())
+        pbar.set_description("Loss: %.4f" % loss.item())
+        optimizer.step()
+
+
+
+
