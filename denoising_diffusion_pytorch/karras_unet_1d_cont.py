@@ -499,16 +499,16 @@ class KarrasUnet1D(Module):
         self.conditional_dim = conditional_dim
 
         if self.needs_conditional:
-            # TODO: adjust nr. of hidden layers if needed
+            # FIXME: adjust nr. of hidden layers if needed, does batchnorm even make sense here?
             # self.to_class_emb = Linear(conditional_dim, emb_dim)
             self.to_cond_emb = nn.Sequential(
                 nn.Linear(conditional_dim, emb_dim),
-                nn.BatchNorm1d(emb_dim),
+                # nn.BatchNorm1d(emb_dim),
                 MPSiLU(),
-                # add another FC layer
-                nn.Linear(emb_dim, emb_dim),
-                nn.BatchNorm1d(emb_dim),
-                MPSiLU(),
+                # # add another FC layer
+                # nn.Linear(emb_dim, emb_dim),
+                # nn.BatchNorm1d(emb_dim),
+                # MPSiLU(),
 
             )
             # NOTE: this is simply a sort of a harmonic mean
