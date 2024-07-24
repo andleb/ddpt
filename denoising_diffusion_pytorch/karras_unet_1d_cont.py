@@ -67,7 +67,11 @@ def l2norm(t, dim=-1, eps=1e-12):
 def interpolate_1d(x, length, mode='bilinear'):
     # FIXME: this messes it up
     # if x.shape[-1] == 1:
-        # return x
+    #     return x
+
+    if length < 1:
+        return x
+
     x = rearrange(x, 'b c t -> b c t 1')
     x = F.interpolate(x, (length, 1), mode=mode)
     return rearrange(x, 'b c t 1 -> b c t')
@@ -290,7 +294,10 @@ class Encoder(Module):
             emb=None
     ):
         if self.downsample:
-            x = interpolate_1d(x, max(x.shape[-1] // 2, 1), mode='bilinear')
+            x = interpolate_1d(x,
+                               max(x.shape[-1] // 2, 1),
+                               # x.shape[-1] // 2,
+                               mode='bilinear')
             x = self.downsample_conv(x)
 
         x = self.pixel_norm(x)
@@ -372,7 +379,9 @@ class Decoder(Module):
             emb=None
     ):
         if self.upsample:
-            x = interpolate_1d(x, x.shape[-1] * 2, mode='bilinear')
+            x = interpolate_1d(x,
+                               max(x.shape[-1] * 2, 1),
+                                      mode='bilinear')
 
         res = self.res_conv(x)
 
