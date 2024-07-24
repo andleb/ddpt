@@ -17,7 +17,7 @@ from torch.optim import Adam
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm
 
-from version import __version__
+from .version import __version__
 
 # constants
 

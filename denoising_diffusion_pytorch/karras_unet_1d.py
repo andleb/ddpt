@@ -13,7 +13,7 @@ from torch import nn
 from torch.nn import Module, ModuleList
 from torch.optim.lr_scheduler import LambdaLR
 
-from attend import Attend
+from .attend import Attend
 
 
 # helpers functions
