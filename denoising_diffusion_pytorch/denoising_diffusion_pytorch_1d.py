@@ -17,7 +17,7 @@ from torch.optim import Adam
 from torch.utils.data import Dataset, DataLoader
 from tqdm.auto import tqdm
 
-from denoising_diffusion_pytorch.version import __version__
+from version import __version__
 
 # constants
 
@@ -841,3 +841,24 @@ class Trainer1D(object):
                 pbar.update(1)
 
         accelerator.print('training complete')
+
+if __name__ == '__main__':
+
+    from karras_unet_1d import KarrasUnet1D
+
+    batch_size = 100
+    seq_len = 8
+    nchannel = 1
+
+    seq = torch.randn(batch_size,  seq_len).unsqueeze(1)
+
+    unet = KarrasUnet1D(
+    seq_len = seq_len,
+    channels = nchannel,
+    # Example settings
+    dim=192,
+    dim_max=768,
+    )
+
+    diffusion = GaussianDiffusion1D(unet, seq_length=seq_len, timesteps=100)
+    loss = diffusion(seq)
