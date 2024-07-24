@@ -290,7 +290,7 @@ class Encoder(Module):
             emb=None
     ):
         if self.downsample:
-            x = interpolate_1d(x, x.shape[-1] // 2, mode='bilinear')
+            x = interpolate_1d(x, max(x.shape[-1] // 2, 1), mode='bilinear')
             x = self.downsample_conv(x)
 
         x = self.pixel_norm(x)
