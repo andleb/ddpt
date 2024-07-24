@@ -13,7 +13,7 @@ from torch import nn
 from torch.nn import Module, ModuleList
 from torch.optim.lr_scheduler import LambdaLR
 
-from .attend import Attend
+from attend import Attend
 
 
 # helpers functions
@@ -65,9 +65,9 @@ def l2norm(t, dim=-1, eps=1e-12):
 
 
 def interpolate_1d(x, length, mode='bilinear'):
-    # no-op for scalars
-    if x.shape[-1] == 1:
-        return x
+    # FIXME: this messes it up
+    # if x.shape[-1] == 1:
+        # return x
     x = rearrange(x, 'b c t -> b c t 1')
     x = F.interpolate(x, (length, 1), mode=mode)
     return rearrange(x, 'b c t 1 -> b c t')
@@ -666,6 +666,7 @@ class MPFeedForward(Module):
     ):
         super().__init__()
         dim_inner = int(dim * mult)
+        # TODO: this is a difference, as well
         self.net = nn.Sequential(
             PixelNorm(dim=1),
             Conv1d(dim, dim_inner, 1),
@@ -732,7 +733,6 @@ def InvSqrtDecayLRSched(
 
 # example
 if __name__ == '__main__':
-    pass
     # TODO: adjust these tests
     # unet = KarrasUnet1D(
     #     seq_len=64,
@@ -750,3 +750,24 @@ if __name__ == '__main__':
     # )
     #
     # assert denoised_images.shape == images.shape
+
+
+    seq_len = 64
+    unet = KarrasUnet1Dcont(
+        seq_len = seq_len,
+        channels = 1,
+        dim = 81,
+        dim_max = 334,
+        conditional_dim=1,
+    )
+
+    seq = torch.randn(100, 1, seq_len)
+    conditioning = torch.randn((100, 1))
+
+    denoised_seq = unet(
+        seq,
+        time=torch.ones(100),
+        condition=conditioning
+    )
+
+    assert denoised_seq.shape == seq.shape
