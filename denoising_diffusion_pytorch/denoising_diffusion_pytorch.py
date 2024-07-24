@@ -20,7 +20,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T, utils
 from tqdm.auto import tqdm
 
-from attend import Attend
+from .attend import Attend
 from version import __version__
 
 # constants
