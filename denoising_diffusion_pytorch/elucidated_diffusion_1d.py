@@ -49,7 +49,7 @@ class ElucidatedDiffusion1D(nn.Module):
                  seq_length,
                  channels=1,
                  num_sample_steps=32,  # number of sampling steps
-                 auto_normalize=False, # we have unbounded data #TODO: check what engression does
+                 auto_normalize=False,  # we have unbounded data #TODO: check what engression does
                  sigma_min=0.002,  # min noise level
                  sigma_max=80,  # max noise level
                  # NOTE: if standardizing the data, adjust this
@@ -63,7 +63,7 @@ class ElucidatedDiffusion1D(nn.Module):
                  S_noise=1.003):
 
         super().__init__()
-        #TODO: karras doesn't have these, not used in this file
+        # TODO: karras doesn't have these, not used in this file
         # assert net.random_or_learned_sinusoidal_cond
 
         self.net = net
@@ -116,7 +116,6 @@ class ElucidatedDiffusion1D(nn.Module):
     def preconditioned_network_forward(self,
                                        noised_seq,
                                        sigma,
-                                       condition=None,
                                        self_cond=None,
                                        clamp=False):
 
@@ -131,7 +130,6 @@ class ElucidatedDiffusion1D(nn.Module):
         # NOTE: only model call, param format currently for karras1dcont
         net_out = self.net(self.c_in(padded_sigma) * noised_seq,
                            self.c_noise(sigma),
-                           condition=condition,
                            self_cond=self_cond)
 
         # TODO: figure out which of these would relate to the data for engression
@@ -160,7 +158,7 @@ class ElucidatedDiffusion1D(nn.Module):
         return sigmas
 
     @torch.no_grad()
-    def sample(self, condition=None, batch_size=16, num_sample_steps=None, clamp=False):
+    def sample(self, batch_size=16, num_sample_steps=None, clamp=False):
         num_sample_steps = default(num_sample_steps, self.num_sample_steps)
 
         shape = (batch_size, self.channels, self.seq_length)
@@ -194,7 +192,6 @@ class ElucidatedDiffusion1D(nn.Module):
 
             # NOTE: condition passed here
             model_output = self.preconditioned_network_forward(seqs_hat, sigma_hat,
-                                                               condition,
                                                                self_cond, clamp=clamp)
             # kind of a relative estimated error
             diff_over_sigma = (seqs_hat - model_output) / sigma_hat
@@ -207,7 +204,6 @@ class ElucidatedDiffusion1D(nn.Module):
 
                 # NOTE: condition passed here
                 model_output_next = self.preconditioned_network_forward(seqs_next, sigma_next,
-                                                                        condition,
                                                                         self_cond,
                                                                         clamp=clamp)
                 diff_prime_over_sigma = (seqs_next - model_output_next) / sigma_next
@@ -223,9 +219,8 @@ class ElucidatedDiffusion1D(nn.Module):
 
         return self.unnormalize(seqs)
 
-
     @torch.no_grad()
-    def sample_using_dpmpp(self, condition=None, batch_size=16, num_sample_steps=None, clamp=False):
+    def sample_using_dpmpp(self, batch_size=16, num_sample_steps=None, clamp=False):
         """
         thanks to Katherine Crowson (https://github.com/crowsonkb) for figuring it all out!
         https://arxiv.org/abs/2211.01095
@@ -243,8 +238,7 @@ class ElucidatedDiffusion1D(nn.Module):
 
         old_denoised = None
         for i in tqdm(range(len(sigmas) - 1)):
-            denoised = self.preconditioned_network_forward(seqs, sigmas[i].item(),
-                                                           condition=condition)
+            denoised = self.preconditioned_network_forward(seqs, sigmas[i].item(),)
             t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
             h = t_next - t
 
@@ -272,7 +266,7 @@ class ElucidatedDiffusion1D(nn.Module):
     def noise_distribution(self, batch_size):
         return (self.P_mean + self.P_std * torch.randn((batch_size,), device=self.device)).exp()
 
-    def forward(self, seqs, condition=None):
+    def forward(self, seqs):
         batch_size, c, n, device, seq_length, channels = *seqs.shape, seqs.device, self.seq_length, self.channels
         assert n == seq_length, f'seq length must be {seq_length}'
         assert c == channels, 'mismatch of image channels'
@@ -295,19 +289,16 @@ class ElucidatedDiffusion1D(nn.Module):
                 # NOTE: the logic is that we pass conditional again, since
                 # each cond. diffusion process an independent diffusion process in itself
                 self_cond = self.preconditioned_network_forward(noised_seqs,
-                                                                sigmas,
-                                                                condition=condition)
+                                                                sigmas)
                 self_cond.detach_()
 
         denoised = self.preconditioned_network_forward(noised_seqs,
                                                        sigmas,
-                                                       condition=condition,
                                                        self_cond=self_cond)
 
         # this is just weighted x-prediction, as in paper
         losses = F.mse_loss(denoised, seqs, reduction='none')
         losses = reduce(losses, 'b ... -> b', 'mean')
-
 
         losses = losses * self.loss_weight(sigmas)
 
@@ -320,7 +311,6 @@ class ElucidatedDiffusion1D(nn.Module):
 
 def train(diffusion: ElucidatedDiffusion1D,
           seqs,
-          conditions,
           num_epochs=100,
           batch_size=32,
           lr=1e-4,
@@ -330,25 +320,17 @@ def train(diffusion: ElucidatedDiffusion1D,
           save_interval=1000,
           save_path='elucidated_diffusion.pt',
           **kwargs):
-
-
     device = diffusion.device
 
-
     optimizer = Adam(diffusion.parameters(), lr=lr, betas=adam_betas)
-
 
     # TODO: EMA decay
 
     pbar = tqdm(range(num_epochs), desc='Loss: N/A')
     for epoch in pbar:
         optimizer.zero_grad()
-        loss = diffusion(seqs=seqs, condition=conditions)
+        loss = diffusion(seqs=seqs)
         loss.backward()
         # print(loss.item())
         optimizer.step()
         pbar.set_description("Loss: %.4f" % loss.item())
-
-
-
-
