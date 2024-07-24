@@ -44,7 +44,7 @@ def unnormalize_to_zero_to_one(t):
 
 
 # main class
-class ElucidatedDiffusion(nn.Module):
+class ElucidatedDiffusion1Dcond(nn.Module):
     def __init__(self, net, *,
                  seq_length,
                  channels=1,
@@ -318,7 +318,7 @@ class ElucidatedDiffusion(nn.Module):
 # TODO: add the dataset etc. files if needed
 # TODO: re-work to batching
 
-def train(diffusion: ElucidatedDiffusion,
+def train(diffusion: ElucidatedDiffusion1Dcond,
           seqs,
           conditions,
           num_epochs=100,

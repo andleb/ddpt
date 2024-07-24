@@ -453,7 +453,7 @@ class KarrasUnet1Dcont(Module):
             channels,  # 4 channels in paper for some reason, must be alpha channel?
             dim=192,
             dim_max=768,  # channels will double every downsample and cap out to this value
-            conditional_dim=1,  # allow for multivariate cont. conditioning
+            conditional_dim=None,  # allow for multivariate cont. conditioning
             num_downsamples=3,
             num_blocks_per_stage=4,
             attn_res=(16, 8),
