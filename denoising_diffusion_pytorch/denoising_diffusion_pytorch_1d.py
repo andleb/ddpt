@@ -146,6 +146,7 @@ class SinusoidalPosEmb(Module):
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
+
 class RandomOrLearnedSinusoidalPosEmb(Module):
     """ following @crowsonkb 's lead with random (learned optional) sinusoidal pos emb """
     """ https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/models/danbooru_128.py#L8 """
@@ -266,8 +267,8 @@ class Attention(Module):
 class Unet1D(Module):
     def __init__(self, dim, init_dim=None, out_dim=None, dim_mults=(1, 2, 4, 8), channels=3, dropout=0.,
                  self_condition=False, learned_variance=False, learned_sinusoidal_cond=False,
-                 random_fourier_features=False,
-                 learned_sinusoidal_dim=16, sinusoidal_pos_emb_theta=10000, attn_dim_head=32, attn_heads=4):
+                 random_fourier_features=False, learned_sinusoidal_dim=16, sinusoidal_pos_emb_theta=10000,
+                 attn_dim_head=32, attn_heads=4):
         super().__init__()
 
         # determine dimensions
@@ -555,8 +556,7 @@ class GaussianDiffusion1D(Module):
     def p_sample(self, x, t: int, x_self_cond=None, clip_denoised=True):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((b,), t, device=x.device, dtype=torch.long)
-        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x=x, t=batched_times,
-                                                                          x_self_cond=x_self_cond,
+        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x=x, t=batched_times, x_self_cond=x_self_cond,
                                                                           clip_denoised=clip_denoised)
         noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
@@ -697,10 +697,9 @@ class GaussianDiffusion1D(Module):
 class Trainer1D(object):
     def __init__(self, diffusion_model: GaussianDiffusion1D, dataset: Dataset, *, train_batch_size=16,
                  gradient_accumulate_every=1, train_lr=1e-4, train_num_steps=100000, ema_update_every=10,
-                 ema_decay=0.995,
-                 adam_betas=(0.9, 0.99), save_and_sample_every=1000, num_samples=25, results_folder='./results',
-                 amp=False,
-                 mixed_precision_type='fp16', split_batches=True, max_grad_norm=1.):
+                 ema_decay=0.995, adam_betas=(0.9, 0.99), save_and_sample_every=1000, num_samples=25,
+                 results_folder='./results', amp=False, mixed_precision_type='fp16', split_batches=True,
+                 max_grad_norm=1.):
         super().__init__()
 
         # accelerator
@@ -762,8 +761,7 @@ class Trainer1D(object):
             return
 
         data = {'step'   : self.step, 'model': self.accelerator.get_state_dict(self.model),
-                'opt'    : self.opt.state_dict(),
-                'ema'    : self.ema.state_dict(),
+                'opt'    : self.opt.state_dict(), 'ema': self.ema.state_dict(),
                 'scaler' : self.accelerator.scaler.state_dict() if exists(self.accelerator.scaler) else None,
                 'version': __version__}
 
@@ -841,23 +839,18 @@ class Trainer1D(object):
 
         accelerator.print('training complete')
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
     from karras_unet_1d import KarrasUnet1D
 
     batch_size = 100
     seq_len = 8
     nchannel = 1
 
-    seq = torch.randn(batch_size,  seq_len).unsqueeze(1)
+    seq = torch.randn(batch_size, seq_len).unsqueeze(1)
 
-    unet = KarrasUnet1D(
-    seq_len = seq_len,
-    channels = nchannel,
-    # Example settings
-    dim=192,
-    dim_max=768,
-    )
+    unet = KarrasUnet1D(seq_len=seq_len, channels=nchannel, # Example settings
+        dim=192, dim_max=768, )
 
     diffusion = GaussianDiffusion1D(unet, seq_length=seq_len, timesteps=100)
     loss = diffusion(seq)

@@ -7,10 +7,8 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange, reduce
 from torch import nn
-from tqdm import tqdm
-
 from torch.optim import Adam
-from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
 from tqdm.auto import tqdm
 
 
@@ -45,11 +43,8 @@ def unnormalize_to_zero_to_one(t):
 
 # main class
 class ElucidatedDiffusion1Dcond(nn.Module):
-    def __init__(self, net, *,
-                 seq_length,
-                 channels=1,
-                 num_sample_steps=32,  # number of sampling steps
-                 auto_normalize=False, # we have unbounded data #TODO: check what engression does
+    def __init__(self, net, *, seq_length, channels=1, num_sample_steps=32,  # number of sampling steps
+                 auto_normalize=False,  # we have unbounded data #TODO: check what engression does
                  sigma_min=0.002,  # min noise level
                  sigma_max=80,  # max noise level
                  # NOTE: if standardizing the data, adjust this
@@ -58,12 +53,10 @@ class ElucidatedDiffusion1Dcond(nn.Module):
                  P_mean=-1.2,  # mean of log-normal distribution from which noise is drawn for training
                  P_std=1.2,  # standard deviation of log-normal distribution from which noise is drawn for training
                  S_churn=80,  # parameters for stochastic sampling - depends on dataset, Table 5 in paper
-                 S_tmin=0.05,
-                 S_tmax=50,
-                 S_noise=1.003):
+                 S_tmin=0.05, S_tmax=50, S_noise=1.003):
 
         super().__init__()
-        #TODO: karras doesn't have these, not used in this file
+        # TODO: karras doesn't have these, not used in this file
         # assert net.random_or_learned_sinusoidal_cond
 
         self.net = net
@@ -113,12 +106,7 @@ class ElucidatedDiffusion1Dcond(nn.Module):
         return log(sigma) * 0.25
 
     # NOTE:  preconditioned network output, equation (7) in the paper
-    def preconditioned_network_forward(self,
-                                       noised_seq,
-                                       sigma,
-                                       condition=None,
-                                       self_cond=None,
-                                       clamp=False):
+    def preconditioned_network_forward(self, noised_seq, sigma, condition=None, self_cond=None, clamp=False):
 
         batch, device = noised_seq.shape[0], noised_seq.device
 
@@ -129,9 +117,7 @@ class ElucidatedDiffusion1Dcond(nn.Module):
         padded_sigma = rearrange(sigma, 'b -> b 1 1')
 
         # NOTE: only model call, param format currently for karras1dcont
-        net_out = self.net(self.c_in(padded_sigma) * noised_seq,
-                           self.c_noise(sigma),
-                           condition=condition,
+        net_out = self.net(self.c_in(padded_sigma) * noised_seq, self.c_noise(sigma), condition=condition,
                            self_cond=self_cond)
 
         # TODO: figure out which of these would relate to the data for engression
@@ -193,9 +179,7 @@ class ElucidatedDiffusion1Dcond(nn.Module):
             self_cond = x_start if self.self_condition else None
 
             # NOTE: condition passed here
-            model_output = self.preconditioned_network_forward(seqs_hat, sigma_hat,
-                                                               condition,
-                                                               self_cond, clamp=clamp)
+            model_output = self.preconditioned_network_forward(seqs_hat, sigma_hat, condition, self_cond, clamp=clamp)
             # kind of a relative estimated error
             diff_over_sigma = (seqs_hat - model_output) / sigma_hat
 
@@ -206,13 +190,10 @@ class ElucidatedDiffusion1Dcond(nn.Module):
                 self_cond = model_output if self.self_condition else None
 
                 # NOTE: condition passed here
-                model_output_next = self.preconditioned_network_forward(seqs_next, sigma_next,
-                                                                        condition,
-                                                                        self_cond,
+                model_output_next = self.preconditioned_network_forward(seqs_next, sigma_next, condition, self_cond,
                                                                         clamp=clamp)
                 diff_prime_over_sigma = (seqs_next - model_output_next) / sigma_next
-                seqs_next = seqs_hat + 0.5 * (sigma_next - sigma_hat) * (
-                        diff_over_sigma + diff_prime_over_sigma)
+                seqs_next = seqs_hat + 0.5 * (sigma_next - sigma_hat) * (diff_over_sigma + diff_prime_over_sigma)
 
             seqs = seqs_next
             # remember: this is x-prediction, after all
@@ -222,7 +203,6 @@ class ElucidatedDiffusion1Dcond(nn.Module):
             seqs = seqs.clamp(-1., 1.)
 
         return self.unnormalize(seqs)
-
 
     @torch.no_grad()
     def sample_using_dpmpp(self, condition=None, batch_size=16, num_sample_steps=None, clamp=False):
@@ -243,8 +223,7 @@ class ElucidatedDiffusion1Dcond(nn.Module):
 
         old_denoised = None
         for i in tqdm(range(len(sigmas) - 1)):
-            denoised = self.preconditioned_network_forward(seqs, sigmas[i].item(),
-                                                           condition=condition)
+            denoised = self.preconditioned_network_forward(seqs, sigmas[i].item(), condition=condition)
             t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
             h = t_next - t
 
@@ -294,20 +273,14 @@ class ElucidatedDiffusion1Dcond(nn.Module):
             with torch.no_grad():
                 # NOTE: the logic is that we pass conditional again, since
                 # each cond. diffusion process an independent diffusion process in itself
-                self_cond = self.preconditioned_network_forward(noised_seqs,
-                                                                sigmas,
-                                                                condition=condition)
+                self_cond = self.preconditioned_network_forward(noised_seqs, sigmas, condition=condition)
                 self_cond.detach_()
 
-        denoised = self.preconditioned_network_forward(noised_seqs,
-                                                       sigmas,
-                                                       condition=condition,
-                                                       self_cond=self_cond)
+        denoised = self.preconditioned_network_forward(noised_seqs, sigmas, condition=condition, self_cond=self_cond)
 
         # this is just weighted x-prediction, as in paper
         losses = F.mse_loss(denoised, seqs, reduction='none')
         losses = reduce(losses, 'b ... -> b', 'mean')
-
 
         losses = losses * self.loss_weight(sigmas)
 
@@ -318,25 +291,12 @@ class ElucidatedDiffusion1Dcond(nn.Module):
 # TODO: add the dataset etc. files if needed
 # TODO: re-work to batching
 
-def train(diffusion: ElucidatedDiffusion1Dcond,
-          seqs,
-          conditions,
-          num_epochs=100,
-          batch_size=32,
-          lr=1e-4,
-          adam_betas=(0.9, 0.999),
-          ema_decay=0.999,
-          log_interval=10,
-          save_interval=1000,
-          save_path='elucidated_diffusion.pt',
-          **kwargs):
-
-
+def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100, batch_size=32, lr=1e-4,
+          adam_betas=(0.9, 0.999), ema_decay=0.999, log_interval=10, save_interval=1000,
+          save_path='elucidated_diffusion.pt', **kwargs):
     device = diffusion.device
 
-
     optimizer = Adam(diffusion.parameters(), lr=lr, betas=adam_betas)
-
 
     # TODO: EMA decay
 
@@ -348,7 +308,3 @@ def train(diffusion: ElucidatedDiffusion1Dcond,
         # print(loss.item())
         optimizer.step()
         pbar.set_description("Loss: %.4f" % loss.item())
-
-
-
-
