@@ -241,19 +241,21 @@ class Attention(nn.Module):
 
 # model
 
-class Unet(nn.Module):
+class Unet1D(nn.Module):
     def __init__(
         self,
         dim,
         init_dim = None,
         out_dim = None,
         dim_mults=(1, 2, 4, 8),
-        channels = 3,
+        channels = 1,
+        dropout=0.,
         self_condition = False,
         learned_variance = False,
         learned_sinusoidal_cond = False,
         random_fourier_features = False,
-        learned_sinusoidal_dim = 16
+        learned_sinusoidal_dim = 16,
+         sinusoidal_pos_emb_theta=10000, attn_dim_head=32, attn_heads=4
     ):
         super().__init__()
 
@@ -989,7 +991,7 @@ if __name__ == '__main__':
         
     
     
-    model = Unet(
+    model = Unet1D(
         dim = 64,
         dim_mults = (1, 2, 4, 8)
     )
