@@ -725,13 +725,13 @@ class GaussianDiffusion1D(nn.Module):
         loss = loss * extract(self.loss_weight, t, loss.shape)
         return loss.mean()
 
-    def forward(self, seq, *args, **kwargs):
-        b, c, n, device, seq_length, = *seq.shape, seq.device, self.seq_length
+    def forward(self, seqs, *args, **kwargs):
+        b, c, n, device, seq_length, = *seqs.shape, seqs.device, self.seq_length
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
-        seq = self.normalize(seq)
-        return self.p_losses(seq, t, *args, **kwargs)
+        seqs = self.normalize(seqs)
+        return self.p_losses(seqs, t, *args, **kwargs)
 
 
 # dataset classes
