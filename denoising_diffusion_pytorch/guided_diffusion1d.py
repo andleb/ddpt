@@ -563,7 +563,6 @@ class GaussianDiffusion1D(nn.Module):
         model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_start, x_t=x, t=t)
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
-    #FIXME:
     def condition_mean(self, cond_fn, mean, variance, x, t, guidance_kwargs=None):
         """
         Compute the mean for the previous step, given a function cond_fn that
@@ -572,6 +571,7 @@ class GaussianDiffusion1D(nn.Module):
         condition on y.
         This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
         """
+
         # this fixes a bug in the official OpenAI implementation:
         # https://github.com/openai/guided-diffusion/issues/51 (see point 1)
         # use the predicted mean for the previous timestep to compute gradient
@@ -966,54 +966,53 @@ def engressor_cond_log_grad(x, t, classifier, y, classifier_scale=1):
     return grad
 
 
-# if __name__ == '__main__':
-#     class Classifier(nn.Module):
-#         def __init__(self, image_size, num_classes, t_dim=1) -> None:
-#             super().__init__()
-#             self.linear_t = nn.Linear(t_dim, num_classes)
-#             self.linear_img = nn.Linear(image_size * image_size * 3, num_classes)
-#
-#         def forward(self, x, t):
-#             """
-#             Args:
-#                 x (_type_): [B, 3, N, N]
-#                 t (_type_): [B,]
-#
-#             Returns:
-#                     logits [B, num_classes]
-#             """
-#             B = x.shape[0]
-#             t = t.view(B, 1)
-#             logits = self.linear_t(t.float()) + self.linear_img(x.view(x.shape[0], -1))
-#             return logits
-#
-#
-        # TODO: figure out what this is actually doing  ...
-#     def classifier_cond_fn(x, t, classifier, y, classifier_scale=1):
-#         """
-#         return the graident of the classifier outputing y wrt x.
-#         formally expressed as d_log(classifier(x, t)) / dx
-#         """
-#         assert y is not None
-#         with torch.enable_grad():
-#             x_in = x.detach().requires_grad_(True)
-#             logits = classifier(x_in, t)
-#             log_probs = F.log_softmax(logits, dim=-1)
-#             selected = log_probs[range(len(logits)), y.view(-1)]
-#             grad = torch.autograd.grad(selected.sum(), x_in)[0] * classifier_scale
-#             return grad
-#
-#
-#     model = Unet1D(dim=64, dim_mults=(1, 2, 4, 8))
-#     seq_length = 128
-#     diffusion = GaussianDiffusion1D(model, seq_length=seq_length, timesteps=1000  # number of steps
-#                                     )
-#
-#     classifier = Classifier(image_size=seq_length, num_classes=1000, t_dim=1)
-#     batch_size = 4
-#     sampled_images = diffusion.sample(batch_size=batch_size, cond_fn=classifier_cond_fn,
-#         guidance_kwargs={"classifier": classifier, "y": torch.fill(torch.zeros(batch_size), 1).long(),
-#             "classifier_scale"       : 1, })
-#     sampled_images.shape  # (4, 3, 128, 128)
+if __name__ == '__main__':
+    class Classifier(nn.Module):
+        def __init__(self, image_size, num_classes, t_dim=1) -> None:
+            super().__init__()
+            self.linear_t = nn.Linear(t_dim, num_classes)
+            self.linear_img = nn.Linear(image_size * image_size * 3, num_classes)
 
-#%%
+        def forward(self, x, t):
+            """
+            Args:
+                x (_type_): [B, 3, N, N]
+                t (_type_): [B,]
+
+            Returns:
+                    logits [B, num_classes]
+            """
+            B = x.shape[0]
+            t = t.view(B, 1)
+            logits = self.linear_t(t.float()) + self.linear_img(x.view(x.shape[0], -1))
+            return logits
+
+
+    # TODO: figure out what this is actually doing  ...
+    def classifier_cond_fn(x, t, classifier, y, classifier_scale=1):
+        """
+        return the gradient of the classifier outputting y wrt x.
+        formally expressed as d_log(classifier(x, t)) / dx
+        """
+        assert y is not None
+        with torch.enable_grad():
+            x_in = x.detach().requires_grad_(True)
+            logits = classifier(x_in, t)
+            log_probs = F.log_softmax(logits, dim=-1)
+            selected = log_probs[range(len(logits)), y.view(-1)]
+            grad = torch.autograd.grad(selected.sum(), x_in)[0] * classifier_scale
+            return grad
+
+
+    model = Unet1D(dim=64, dim_mults=(1, 2, 4, 8))
+    seq_length = 128
+    diffusion = GaussianDiffusion1D(model, seq_length=seq_length, timesteps=1000  # number of steps
+                                    )
+
+    classifier = Classifier(image_size=seq_length, num_classes=1000, t_dim=1)
+    batch_size = 4
+    sampled_images = diffusion.sample(batch_size=batch_size, cond_fn=classifier_cond_fn,
+        guidance_kwargs={"classifier": classifier, "y": torch.fill(torch.zeros(batch_size), 1).long(),
+            "classifier_scale"       : 1, })
+    sampled_images.shape  # (4, 3, 128, 128)
+
