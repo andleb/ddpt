@@ -502,6 +502,11 @@ class GaussianDiffusion1D(nn.Module):
         self.normalize = normalize_to_neg_one_to_one if auto_normalize else identity
         self.unnormalize = unnormalize_to_zero_to_one if auto_normalize else identity
 
+
+    @property
+    def device(self):
+        return next(self.model.parameters()).device
+
     def predict_start_from_noise(self, x_t, t, noise):
         return (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - extract(self.sqrt_recipm1_alphas_cumprod,
                                                                                       t, x_t.shape) * noise)
