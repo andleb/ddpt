@@ -410,7 +410,7 @@ class GaussianDiffusion1D(nn.Module):
                  min_snr_loss_weight=False, min_snr_gamma=5):
         super().__init__()
         assert not (type(self) == GaussianDiffusion1D and model.channels != model.out_dim)
-        assert not model.random_or_learned_sinusoidal_cond
+        # assert not model.random_or_learned_sinusoidal_cond
 
         self.model = model
         self.channels = self.model.channels
@@ -1010,3 +1010,5 @@ def engressor_cond_log_grad(x, t, classifier, y, classifier_scale=1):
 #         guidance_kwargs={"classifier": classifier, "y": torch.fill(torch.zeros(batch_size), 1).long(),
 #             "classifier_scale"       : 1, })
 #     sampled_images.shape  # (4, 3, 128, 128)
+
+#%%
