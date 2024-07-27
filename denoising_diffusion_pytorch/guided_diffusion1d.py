@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from einops import rearrange, reduce
 from torch import nn, einsum
 from torch.cuda.amp import autocast
+from torch.optim import Adam
 from tqdm.auto import tqdm
 
 # from accelerate import Accelerator
@@ -922,52 +923,90 @@ class GaussianDiffusion1D(nn.Module):
 #
 
 
-if __name__ == '__main__':
-    class Classifier(nn.Module):
-        def __init__(self, image_size, num_classes, t_dim=1) -> None:
-            super().__init__()
-            self.linear_t = nn.Linear(t_dim, num_classes)
-            self.linear_img = nn.Linear(image_size * image_size * 3, num_classes)
+def train(diffusion: GaussianDiffusion1D, seqs, num_epochs=1000,
+          batch_size=32, lr=1e-4,
+          adam_betas=(0.9, 0.999), ema_decay=0.999,
+          log_interval=10, save_interval=1000,
+          save_path='elucidated_diffusion.pt', **kwargs):
 
-        def forward(self, x, t):
-            """
-            Args:
-                x (_type_): [B, 3, N, N]
-                t (_type_): [B,]
+    device = diffusion.device
 
-            Returns:
-                    logits [B, num_classes]
-            """
-            B = x.shape[0]
-            t = t.view(B, 1)
-            logits = self.linear_t(t.float()) + self.linear_img(x.view(x.shape[0], -1))
-            return logits
+    optimizer = Adam(diffusion.parameters(), lr=lr, betas=adam_betas)
 
+    # TODO: EMA decay
 
-    #FIXME: don't have logits for the engressor?
-    def classifier_cond_fn(x, t, classifier, y, classifier_scale=1):
-        """
-        return the graident of the classifier outputing y wrt x.
-        formally expressed as d_log(classifier(x, t)) / dx
-        """
-        assert y is not None
-        with torch.enable_grad():
-            x_in = x.detach().requires_grad_(True)
-            logits = classifier(x_in, t)
-            log_probs = F.log_softmax(logits, dim=-1)
-            selected = log_probs[range(len(logits)), y.view(-1)]
-            grad = torch.autograd.grad(selected.sum(), x_in)[0] * classifier_scale
-            return grad
+    pbar = tqdm(range(num_epochs), desc='Loss: N/A')
+    for epoch in pbar:
+        optimizer.zero_grad()
+        loss = diffusion(seqs=seqs)
+        loss.backward()
+        # print(loss.item())
+        optimizer.step()
+        pbar.set_description("Loss: %.4f" % loss.item())
 
 
-    model = Unet1D(dim=64, dim_mults=(1, 2, 4, 8))
-    seq_length = 128
-    diffusion = GaussianDiffusion1D(model, seq_length=seq_length, timesteps=1000  # number of steps
-                                    )
+# FIXME: don't have logits for the engressor?
+def engressor_cond_log_grad(x, t, classifier, y, classifier_scale=1):
+    """
+    return the gradient of the classifier outputting y wrt x.
+    formally expressed as d_log(classifier(x, t)) / dx
+    """
+    assert y is not None
+    with torch.enable_grad():
+        x_in = x.detach().requires_grad_(True)
+    logits = classifier(x_in, t)
+    log_probs = F.log_softmax(logits, dim=-1)
+    selected = log_probs[range(len(logits)), y.view(-1)]
+    grad = torch.autograd.grad(selected.sum(), x_in)[0] * classifier_scale
+    return grad
 
-    classifier = Classifier(image_size=seq_length, num_classes=1000, t_dim=1)
-    batch_size = 4
-    sampled_images = diffusion.sample(batch_size=batch_size, cond_fn=classifier_cond_fn,
-        guidance_kwargs={"classifier": classifier, "y": torch.fill(torch.zeros(batch_size), 1).long(),
-            "classifier_scale"       : 1, })
-    sampled_images.shape  # (4, 3, 128, 128)
+
+# if __name__ == '__main__':
+#     class Classifier(nn.Module):
+#         def __init__(self, image_size, num_classes, t_dim=1) -> None:
+#             super().__init__()
+#             self.linear_t = nn.Linear(t_dim, num_classes)
+#             self.linear_img = nn.Linear(image_size * image_size * 3, num_classes)
+#
+#         def forward(self, x, t):
+#             """
+#             Args:
+#                 x (_type_): [B, 3, N, N]
+#                 t (_type_): [B,]
+#
+#             Returns:
+#                     logits [B, num_classes]
+#             """
+#             B = x.shape[0]
+#             t = t.view(B, 1)
+#             logits = self.linear_t(t.float()) + self.linear_img(x.view(x.shape[0], -1))
+#             return logits
+#
+#
+        # TODO: figure out what this is actually doing  ...
+#     def classifier_cond_fn(x, t, classifier, y, classifier_scale=1):
+#         """
+#         return the graident of the classifier outputing y wrt x.
+#         formally expressed as d_log(classifier(x, t)) / dx
+#         """
+#         assert y is not None
+#         with torch.enable_grad():
+#             x_in = x.detach().requires_grad_(True)
+#             logits = classifier(x_in, t)
+#             log_probs = F.log_softmax(logits, dim=-1)
+#             selected = log_probs[range(len(logits)), y.view(-1)]
+#             grad = torch.autograd.grad(selected.sum(), x_in)[0] * classifier_scale
+#             return grad
+#
+#
+#     model = Unet1D(dim=64, dim_mults=(1, 2, 4, 8))
+#     seq_length = 128
+#     diffusion = GaussianDiffusion1D(model, seq_length=seq_length, timesteps=1000  # number of steps
+#                                     )
+#
+#     classifier = Classifier(image_size=seq_length, num_classes=1000, t_dim=1)
+#     batch_size = 4
+#     sampled_images = diffusion.sample(batch_size=batch_size, cond_fn=classifier_cond_fn,
+#         guidance_kwargs={"classifier": classifier, "y": torch.fill(torch.zeros(batch_size), 1).long(),
+#             "classifier_scale"       : 1, })
+#     sampled_images.shape  # (4, 3, 128, 128)
