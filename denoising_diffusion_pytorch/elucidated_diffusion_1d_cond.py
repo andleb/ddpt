@@ -1,5 +1,6 @@
 # NOTE: this is EDM - Karras 2022
 
+from collections import deque
 from math import sqrt
 from random import random
 
@@ -10,6 +11,7 @@ from torch import nn
 from torch.optim import Adam
 from tqdm import tqdm
 from tqdm.auto import tqdm
+
 
 
 # helpers
@@ -293,12 +295,31 @@ class ElucidatedDiffusion1Dcond(nn.Module):
 
 def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100, batch_size=32, lr=1e-4,
           adam_betas=(0.9, 0.999), ema_decay=0.999, log_interval=10, save_interval=1000,
-          save_path='elucidated_diffusion.pt', **kwargs):
+          save_path='elucidated_diffusion.pt',
+          return_loss=False,
+          test_loss=False,
+          early_stopping=None,
+           **kwargs):
+
     device = diffusion.device
 
     optimizer = Adam(diffusion.parameters(), lr=lr, betas=adam_betas)
 
     # TODO: EMA decay
+
+
+    if return_loss:
+        train_losses = []
+        if test_loss:
+            test_seqs = kwargs.get('test_seqs')
+            test_conditions = kwargs.get('test_conditions')
+            test_losses = []
+
+
+    if early_stopping is not None:
+
+        early_stopping_buffer = deque(maxlen=int(early_stopping))
+        early_stopping_threshold = kwargs.get('early_stopping_threshold', 0.5)
 
     pbar = tqdm(range(num_epochs), desc='Loss: N/A')
     for epoch in pbar:
@@ -308,3 +329,26 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
         # print(loss.item())
         optimizer.step()
         pbar.set_description("Loss: %.4f" % loss.item())
+
+        if return_loss:
+            train_losses.append(loss.item())
+            if test_loss:
+                with torch.no_grad():
+                    test_loss = diffusion(seqs=test_seqs, condition=test_conditions)
+                    test_losses.append(test_loss.item())
+
+        # rough implementation
+        if early_stopping is not None:
+            early_stopping_buffer.append(loss.item())
+            if len(early_stopping_buffer) == early_stopping:
+                if early_stopping_buffer[0] - early_stopping_buffer[-1] < early_stopping_threshold:
+                    break
+
+
+    if return_loss:
+        if test_loss:
+            return train_losses, test_losses
+        return train_losses
+
+
+#%%
