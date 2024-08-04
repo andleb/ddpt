@@ -4,6 +4,7 @@ from collections import deque
 from math import sqrt
 from random import random
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from einops import rearrange, reduce
@@ -11,7 +12,6 @@ from torch import nn
 from torch.optim import Adam
 from tqdm import tqdm
 from tqdm.auto import tqdm
-
 
 
 # helpers
@@ -339,8 +339,9 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
         if early_stopping is not None:
             early_stopping_buffer.append(loss.item())
             if len(early_stopping_buffer) == early_stopping:
-                if early_stopping_buffer[0] - early_stopping_buffer[-1] < early_stopping_threshold:
-                    print(f'Early stopping at epoch {epoch}!')
+                # NOTE: need to add abs if checking every step
+                if np.abs(early_stopping_buffer[0] - early_stopping_buffer[-1]) < early_stopping_threshold:
+                    print(f'Early stopping at epoch {epoch}! Prev loss: {early_stopping_buffer[0]}, curr. loss: {early_stopping_buffer[-1]}')
                     break
 
 
