@@ -317,7 +317,6 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
 
 
     if early_stopping is not None:
-
         early_stopping_buffer = deque(maxlen=int(early_stopping))
         early_stopping_threshold = kwargs.get('early_stopping_threshold', 0.5)
 
@@ -337,11 +336,11 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
                     test_loss = diffusion(seqs=test_seqs, condition=test_conditions)
                     test_losses.append(test_loss.item())
 
-        # rough implementation
         if early_stopping is not None:
             early_stopping_buffer.append(loss.item())
             if len(early_stopping_buffer) == early_stopping:
                 if early_stopping_buffer[0] - early_stopping_buffer[-1] < early_stopping_threshold:
+                    print(f'Early stopping at epoch {epoch}!')
                     break
 
 
