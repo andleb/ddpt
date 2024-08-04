@@ -346,7 +346,7 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
 
             if elapsed_epochs == early_stopping:
                 diff = prev_loss - loss.item()
-                if diff >= 0 and diff < early_stopping_threshold:
+                if (diff >= 0) and (diff < early_stopping_threshold):
                         print(f'Early stopping at epoch {epoch}! Prev loss: {prev_loss}, curr. loss: {loss.item()}')
                         break
                 else:
