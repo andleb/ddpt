@@ -317,8 +317,10 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
 
 
     if early_stopping is not None:
-        early_stopping_buffer = deque(maxlen=int(early_stopping))
+        # early_stopping_buffer = deque(maxlen=int(early_stopping))
         early_stopping_threshold = kwargs.get('early_stopping_threshold', 0.5)
+        prev_loss = None
+        elapsed_epochs = 0
 
     pbar = tqdm(range(num_epochs), desc='Loss: N/A')
     for epoch in pbar:
@@ -337,12 +339,28 @@ def train(diffusion: ElucidatedDiffusion1Dcond, seqs, conditions, num_epochs=100
                     test_losses.append(test_loss.item())
 
         if early_stopping is not None:
-            early_stopping_buffer.append(loss.item())
-            if len(early_stopping_buffer) == early_stopping:
-                # NOTE: need to add abs if checking every step
-                if np.abs(early_stopping_buffer[0] - early_stopping_buffer[-1]) < early_stopping_threshold:
-                    print(f'Early stopping at epoch {epoch}! Prev loss: {early_stopping_buffer[0]}, curr. loss: {early_stopping_buffer[-1]}')
-                    break
+            if prev_loss is None:
+                prev_loss = loss.item()
+                continue
+            elapsed_epochs += 1
+
+            if elapsed_epochs == early_stopping:
+                diff = prev_loss - loss.item()
+                if diff >= 0 and diff < early_stopping_threshold:
+                        print(f'Early stopping at epoch {epoch}! Prev loss: {prev_loss}, curr. loss: {loss.item()}')
+                        break
+                else:
+                    elapsed_epochs = 0
+                    prev_loss = loss.item()
+
+
+
+            # early_stopping_buffer.append(loss.item())
+            # if len(early_stopping_buffer) == early_stopping:
+            #     # NOTE: need to add abs if checking every step
+            #     if np.abs(early_stopping_buffer[0] - early_stopping_buffer[-1]) < early_stopping_threshold:
+            #         print(f'Early stopping at epoch {epoch}! Prev loss: {early_stopping_buffer[0]}, curr. loss: {early_stopping_buffer[-1]}')
+            #         break
 
 
     if return_loss:
