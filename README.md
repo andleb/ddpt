@@ -355,3 +355,25 @@ You could consider adding a suitable metric to the training loop yourself after 
     url     = {https://api.semanticscholar.org/CorpusID:265659032}
 }
 ```
+
+```bibtex
+@article{Li2024ImmiscibleDA,
+    title   = {Immiscible Diffusion: Accelerating Diffusion Training with Noise Assignment},
+    author  = {Yiheng Li and Heyang Jiang and Akio Kodaira and Masayoshi Tomizuka and Kurt Keutzer and Chenfeng Xu},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2406.12303},
+    url     = {https://api.semanticscholar.org/CorpusID:270562607}
+}
+```
+
+```bibtex
+@article{Chung2024CFGMC,
+    title   = {CFG++: Manifold-constrained Classifier Free Guidance for Diffusion Models},
+    author  = {Hyungjin Chung and Jeongsol Kim and Geon Yeong Park and Hyelin Nam and Jong Chul Ye},
+    journal = {ArXiv},
+    year    = {2024},
+    volume  = {abs/2406.08070},
+    url     = {https://api.semanticscholar.org/CorpusID:270391454}
+}
+```
