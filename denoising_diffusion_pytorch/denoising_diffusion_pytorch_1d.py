@@ -405,12 +405,28 @@ def cosine_beta_schedule(timesteps, s=0.008):
 
 
 class GaussianDiffusion1D(Module):
-    def __init__(self, model, *, seq_length, timesteps=1000, sampling_timesteps=None, objective='pred_noise',
-                 beta_schedule='cosine', ddim_sampling_eta=0., auto_normalize=True):
+    def __init__(
+        self,
+        model,
+        *,
+        seq_length,
+        timesteps = 1000,
+        sampling_timesteps = None,
+        objective = 'pred_noise',
+        beta_schedule = 'cosine',
+        ddim_sampling_eta = 0.,
+        auto_normalize = True,
+        channels = None,
+        self_condition = None,
+        channel_first = True
+    ):
         super().__init__()
         self.model = model
-        self.channels = self.model.channels
-        self.self_condition = self.model.self_condition
+        self.channels = default(channels, lambda: self.model.channels)
+        self.self_condition = default(self_condition, lambda: self.model.self_condition)
+
+        self.channel_first = channel_first
+        self.seq_index = -2 if not channel_first else -1
 
         self.seq_length = seq_length
 
@@ -515,10 +531,13 @@ class GaussianDiffusion1D(Module):
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def model_predictions(self, x, t, x_self_cond=None, clip_x_start=False, rederive_pred_noise=False):
+    def model_predictions(self, x, t, x_self_cond = None, clip_x_start = False, rederive_pred_noise = False, model_forward_kwargs: dict = dict()):
+
+        if exists(x_self_cond):
+            model_forward_kwargs = {**model_forward_kwargs, 'self_cond': x_self_cond}
         # NOTE: here the model would ignore the data
-        model_output = self.model(x, t, x_self_cond)
-        maybe_clip = partial(torch.clamp, min=-1., max=1.) if clip_x_start else identity
+        model_output = self.model(x, t, **model_forward_kwargs)
+        maybe_clip = partial(torch.clamp, min = -1., max = 1.) if clip_x_start else identity
 
         if self.objective == 'pred_noise':
             pred_noise = model_output
@@ -542,8 +561,12 @@ class GaussianDiffusion1D(Module):
         # NOTE: returning x_0 regardless of the objective
         return ModelPrediction(pred_noise, x_start)
 
-    def p_mean_variance(self, x, t, x_self_cond=None, clip_denoised=True):
-        preds = self.model_predictions(x, t, x_self_cond)
+    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True, model_forward_kwargs: dict = dict()):
+
+        if exists(x_self_cond):
+            model_forward_kwargs = {**model_forward_kwargs, 'self_cond': x_self_cond}
+
+        preds = self.model_predictions(x, t, **model_forward_kwargs)
         x_start = preds.pred_x_start
 
         if clip_denoised:
@@ -553,48 +576,53 @@ class GaussianDiffusion1D(Module):
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, x_self_cond=None, clip_denoised=True):
+    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = True, model_forward_kwargs: dict = dict()):
         b, *_, device = *x.shape, x.device
-        batched_times = torch.full((b,), t, device=x.device, dtype=torch.long)
-        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x=x, t=batched_times, x_self_cond=x_self_cond,
-                                                                          clip_denoised=clip_denoised)
-        noise = torch.randn_like(x) if t > 0 else 0.  # no noise if t == 0
+        batched_times = torch.full((b,), t, device = x.device, dtype = torch.long)
+        model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = clip_denoised, model_forward_kwargs = model_forward_kwargs)
+        noise = torch.randn_like(x) if t > 0 else 0. # no noise if t == 0
         pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
         return pred_img, x_start
 
     @torch.no_grad()
-    def p_sample_loop(self, shape):
+    def p_sample_loop(self, shape, return_noise = False, model_forward_kwargs: dict = dict()):
         batch, device = shape[0], self.betas.device
 
-        img = torch.randn(shape, device=device)
+        noise = torch.randn(shape, device=device)
+        img = noise 
 
         x_start = None
 
         for t in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
             self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, t, self_cond)
+            img, x_start = self.p_sample(img, t, self_cond, model_forward_kwargs = model_forward_kwargs)
 
         img = self.unnormalize(img)
-        return img
+
+        if not return_noise:
+            return img
+
+        return img, noise
 
     @torch.no_grad()
-    def ddim_sample(self, shape, clip_denoised=True):
-        batch, device, total_timesteps, sampling_timesteps, eta, objective = shape[
-            0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
+    def ddim_sample(self, shape, clip_denoised = True, model_forward_kwargs: dict = dict(), return_noise = False):
+        batch, device, total_timesteps, sampling_timesteps, eta, objective = shape[0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
 
         times = torch.linspace(-1, total_timesteps - 1,
                                steps=sampling_timesteps + 1)  # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:]))  # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
 
-        img = torch.randn(shape, device=device)
+        noise = torch.randn(shape, device = device)
+        img = noise
 
         x_start = None
 
         for time, time_next in tqdm(time_pairs, desc='sampling loop time step'):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
             self_cond = x_start if self.self_condition else None
-            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start=clip_denoised)
+
+            pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = clip_denoised, model_forward_kwargs = model_forward_kwargs)
 
             if time_next < 0:
                 img = x_start
@@ -611,13 +639,19 @@ class GaussianDiffusion1D(Module):
             img = x_start * alpha_next.sqrt() + c * pred_noise + sigma * noise
 
         img = self.unnormalize(img)
-        return img
+
+        if not return_noise:
+            return img
+
+        return img, noise
 
     @torch.no_grad()
-    def sample(self, batch_size=16):
+    def sample(self, batch_size = 16, return_noise = False, model_forward_kwargs: dict = dict()):
         seq_length, channels = self.seq_length, self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size, channels, seq_length))
+
+        shape = (batch_size, channels, seq_length) if self.channel_first else (batch_size, seq_length, channels)
+        return sample_fn(shape, return_noise = return_noise, model_forward_kwargs = model_forward_kwargs)
 
     @torch.no_grad()
     def interpolate(self, x1, x2, t=None, lam=0.5):
@@ -639,15 +673,18 @@ class GaussianDiffusion1D(Module):
 
         return img
 
-    @autocast(enabled=False)
+    @autocast('cuda', enabled = False)
     def q_sample(self, x_start, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         return (extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start + extract(
             self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
 
-    def p_losses(self, x_start, t, noise=None):
-        b, c, n = x_start.shape
+
+    def p_losses(self, x_start, t, noise = None, model_forward_kwargs: dict = dict(), return_reduced_loss = True):
+        b = x_start.shape[0]
+        n = x_start.shape[self.seq_index]
+
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # NOTE: this is noised sample - z in terms of Kingma
@@ -663,9 +700,13 @@ class GaussianDiffusion1D(Module):
                 x_self_cond = self.model_predictions(x, t).pred_x_start
                 x_self_cond.detach_()
 
+            model_forward_kwargs = {**model_forward_kwargs, 'self_cond': x_self_cond}
+
+        # model kwargs
+
         # predict and take gradient step
 
-        model_out = self.model(x, t, x_self_cond)
+        model_out = self.model(x, t, **model_forward_kwargs)
 
         if self.objective == 'pred_noise':
             target = noise
@@ -677,14 +718,20 @@ class GaussianDiffusion1D(Module):
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
-        loss = F.mse_loss(model_out, target, reduction='none')
+        loss = F.mse_loss(model_out, target, reduction = 'none')
+
+        if not return_reduced_loss:
+            return loss * extract(self.loss_weight, t, loss.shape)
+
         loss = reduce(loss, 'b ... -> b', 'mean')
 
         loss = loss * extract(self.loss_weight, t, loss.shape)
+
         return loss.mean()
 
     def forward(self, img, *args, **kwargs):
-        b, c, n, device, seq_length, = *img.shape, img.device, self.seq_length
+        b, n, device, seq_length, = img.shape[0], img.shape[self.seq_index], img.device, self.seq_length
+
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
@@ -771,7 +818,7 @@ class Trainer1D(object):
         accelerator = self.accelerator
         device = accelerator.device
 
-        data = torch.load(str(self.results_folder / f'model-{milestone}.pt'), map_location=device)
+        data = torch.load(str(self.results_folder / f'model-{milestone}.pt'), map_location=device, weights_only=True)
 
         model = self.accelerator.unwrap_model(self.model)
         model.load_state_dict(data['model'])
