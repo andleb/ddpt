@@ -3,7 +3,7 @@
 Research scratch repository built on top of
 [lucidrains/denoising-diffusion-pytorch](https://github.com/lucidrains/denoising-diffusion-pytorch)
 (MIT, Phil Wang). The upstream code is his. The additions listed below are mine and were
-written in summer 2024 as part of an exploratory project on conditional diffusion models for
+written in summer 2024 as part of a project on conditional diffusion models for
 low-dimensional, regression-style data (a response vector conditioned on a continuous
 covariate vector) rather than images.
 
